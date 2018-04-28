@@ -3,7 +3,7 @@ import scipy.io as scio
 import numpy as np
 
 
-def draw_in_one(images, show_size=(660, 1320), blank_size=6, window_name='Overview'):
+def draw_in_one(images, name, show_size=(660, 1320), blank_size=6, window_name='Overview'):
     if len(images) < 3:
         return 0
     shape = [show_size[0], show_size[1]]
@@ -30,6 +30,8 @@ def draw_in_one(images, show_size=(660, 1320), blank_size=6, window_name='Overvi
                 w_start = tmp_end + blank_size
             else:
                 merge_img[h_start:h_end, w_start:w_end] = im
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(merge_img, name[j],(w_start,h_start+21), font, 0.8,(255,255,255), 1,cv2.LINE_AA)
                 w_start = w_end + blank_size
             count += 1
         h_start = h_end+blank_size
@@ -94,11 +96,11 @@ def readMat(filename):
 
 class patch():
     def __init__(self, show, index1, index2):
-        self.show = show
-        self.counter = 0
-        self.r = 0.8
-        self.srcRatio = 0.5
-        self.salRatio = 0.3
+        self.show = show    # 1 - show each step of selection and result of matching
+        self.counter = 0    # counter the number of the triplets
+        self.r = 0.8        # the ratio of threshold
+        self.srcRatio = 0.5 # downsample ratio of the source
+        self.salRatio = 0.3 # downsample ratio of salient map
         self.color = [(255,0,0),(0,255,0),(0,0,255)]
 
         self.sift = cv2.xfeatures2d.SIFT_create()
@@ -116,33 +118,37 @@ class patch():
         print 'Saliency1:', self.sal1_basis
 
         self.src2 = readImg(retname + '.png')   # trainImage
+        self.name = ['src', retname[17:]]   # name of retargeting algorithm
         self.draw2 = self.src2.copy()
         self.sal2 = readMat(retname + '.mat')
         self.sal2_basis = np.average(np.average(self.sal2, axis=1)) * self.r
         print 'Saliency2:', self.sal2_basis
 
         retname = self.refname + self.retnames[index2]
-        print retname
+        self.name.append(retname[17:])
         self.src3 = readImg(retname + '.png')   # trainImage
         self.draw3 = self.src3.copy()
         self.sal3 = readMat(retname + '.mat')
         self.sal3_basis = np.average(np.average(self.sal3, axis=1)) * self.r
         print 'Saliency3:', self.sal3_basis
 
-        self.ker_n = 64
-        self.stride = 32
+        self.ker_n = 64     # the size of sliding window
+        self.stride = 32    # the stride of sliding window
 
-        self.h = self.src1.shape[0]
-        self.w = self.src1.shape[1]
+        self.h = self.src1.shape[0] # the height of reference image
+        self.w = self.src1.shape[1] # the width of reference image
 
-        self.scal_h = self.ker_n
-        self.scal_w = self.ker_n
+        self.scal_h = self.ker_n # expanding height
+        self.scal_w = self.ker_n # expanding width
 
         self.h_c = self.src2.shape[0]
         self.w_c = self.src2.shape[1]
 
-        self.h_r = self.h_c *1.0/self.h
-        self.w_r = self.w_c *1.0/self.w
+        self.deltaH = (self.h - self.h_c)-2 # height basis for crop
+        self.deltaW = (self.w - self.w_c)-2 # width basis for crop
+
+        self.h_r = self.h_c *1.0/self.h # the height of retargeted image
+        self.w_r = self.w_c *1.0/self.w # the width of retargeted image
 
         self.h_basis = (self.h%self.stride)/2
         self.h_n = self.h/self.stride - 1
@@ -183,39 +189,48 @@ class patch():
                            int(self.sal3.shape[0] * self.salRatio)),
                           interpolation=cv2.INTER_CUBIC)*255)
 
-        draw_in_one(tmp)
+        draw_in_one(tmp, self.name)
         cv2.waitKey(0)
 
-    def getNext(self):
-        if self.x >= self.h_n:
-            return 0
-        x_ = self.h_basis + self.stride*self.x
-        y_ = self.w_basis + self.stride*self.y
-
-        self.img1 = self.src1[x_:(x_+self.ker_n), y_:(y_+self.ker_n)]
-        sal = self.sal1[x_:(x_+self.ker_n), y_:(y_+self.ker_n)]
-
-        x_l = int(x_*self.h_r-self.scal_h)
+    def getXY(self, y_, x_):
+        x_l = int(x_*self.w_r-self.scal_w)
         if x_l < 0:
             x_l = 0
-        x_r = int(x_*self.h_r+self.ker_n+self.scal_h)
-        if x_r > self.h_c:
-            x_r = self.h_c
+        x_r = int(x_*self.w_r+self.ker_n+self.scal_w)
 
-        y_l = int(y_*self.w_r-self.scal_w)
+        y_l = int(y_*self.h_r-self.scal_h)
         if y_l < 0:
             y_l = 0
-        y_r = int(y_*self.w_r+self.ker_n+self.scal_w)
-        if y_r > self.w_c:
-            y_r = self.w_c
+        y_r = int(y_*self.h_r+self.ker_n+self.scal_h)
 
+        if self.name[0] != 'cr':
+            pos1 = [y_l, y_r, x_l, x_r]
+        else:
+            
+            pos1 = []
+        if self.name[1] != 'cr':
+            pos2 = [y_l, y_r, x_l, x_r]
+        else:
+            pos2 = []
+        return pos1, pos2
+
+    def getNext(self):
+        if self.y >= self.h_n:
+            return 0
+        y_ = self.h_basis + self.stride*self.y
+        x_ = self.w_basis + self.stride*self.x
+
+        self.img1 = self.src1[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+        sal = self.sal1[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+
+        pos1, pos2 = self.getXY(y_, x_)
         # print x_l, x_r, '-', y_l, y_r, ':', y_r-y_l
 
-        if self.y + 1 < self.w_n:
-            self.y += 1
-        else:
+        if self.x + 1 < self.w_n:
             self.x += 1
-            self.y = 0
+        else:
+            self.y += 1
+            self.x = 0
 
         if np.average(np.average(sal, axis=1)) < self.sal1_basis:
             return 1
@@ -227,14 +242,14 @@ class patch():
             cv2.moveWindow("Crop", 10, 0)
             cv2.imshow('Crop', self.img1)
 
-        self.img2 = self.src2[x_l:x_r, y_l:y_r]
+        self.img2 = self.src2[pos1[0]:pos1[1], pos1[2]:pos1[3]]
         if self.show:
             cv2.namedWindow("Crop1")
             cv2.moveWindow("Crop1", 10, 180)
             cv2.imshow('Crop1', self.img2)
         self.generate(1)
 
-        self.img2 = self.src3[x_l:x_r, y_l:y_r]
+        self.img2 = self.src3[pos2[0]:pos2[1], pos2[2]:pos2[3]]
         if self.show:
             cv2.namedWindow("Crop2")
             cv2.moveWindow("Crop2", 10, 400)
@@ -248,27 +263,27 @@ class patch():
         if len(self.double) == 2:
             self.counter += 1
             # print self.counter
-            cv2.rectangle(self.draw1,(y_,x_),(y_+self.ker_n,x_+self.ker_n),self.color[0],2)
+            cv2.rectangle(self.draw1,(x_,y_),(x_+self.ker_n,y_+self.ker_n),self.color[0],2)
 
             tmp = [cv2.resize(self.draw1,
                               (int(self.draw1.shape[1] * self.srcRatio),
                                int(self.draw1.shape[0] * self.srcRatio)),
                               interpolation=cv2.INTER_CUBIC)]
 
-            x = x_l + self.double[0][0]
-            y = y_l + self.double[0][1]
-            self.sal2[x:(x+self.ker_n), y:(y+self.ker_n)] = 0
-            cv2.rectangle(self.draw2,(y,x),(y+self.ker_n,x+self.ker_n),self.color[1],2)
+            y = pos1[0] + self.double[0][0]
+            x = pos1[2] + self.double[0][1]
+            self.sal2[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
+            cv2.rectangle(self.draw2,(x,y),(x+self.ker_n,y+self.ker_n),self.color[1],2)
 
             tmp.append(cv2.resize(self.draw2,
                               (int(self.draw2.shape[1] * self.srcRatio),
                                int(self.draw2.shape[0] * self.srcRatio)),
                               interpolation=cv2.INTER_CUBIC))
 
-            x = x_l + self.double[1][0]
-            y = y_l + self.double[1][1]
-            self.sal3[x:(x+self.ker_n), y:(y+self.ker_n)] = 0
-            cv2.rectangle(self.draw3,(y,x),(y+self.ker_n,x+self.ker_n),self.color[2],2)
+            y = pos2[0] + self.double[1][0]
+            x = pos2[2] + self.double[1][1]
+            self.sal3[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
+            cv2.rectangle(self.draw3,(x,y),(x+self.ker_n,y+self.ker_n),self.color[2],2)
 
             tmp.append(cv2.resize(self.draw3,
                               (int(self.draw3.shape[1] * self.srcRatio),
@@ -289,7 +304,7 @@ class patch():
                                int(self.sal3.shape[0] * self.salRatio)),
                               interpolation=cv2.INTER_CUBIC)*255)
 
-            draw_in_one(tmp)
+            draw_in_one(tmp, self.name)
             if self.show == 0:
                 cv2.waitKey(30)
                 # cv2.destroyAllWindows()
