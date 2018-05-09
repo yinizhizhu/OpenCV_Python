@@ -132,6 +132,7 @@ class patch():
         self.sal3_basis = np.average(np.average(self.sal3, axis=1)) * self.r
         print 'Saliency3:', self.sal3_basis
 
+        self.sal_basis = self.sal1_basis
         self.ker_n = 64     # the size of sliding window
         self.stride = 32    # the stride of sliding window
 
@@ -148,7 +149,7 @@ class patch():
 
         self.deltaH = (self.h - self.h_c)/2 # height basis for crop
         self.deltaW = (self.w - self.w_c)/2 # width basis for crop
-        print self.deltaH, self.deltaW
+        # print self.deltaH, self.deltaW
 
         self.h_r = self.h_c *1.0/self.h # the height of retargeted image
         self.w_r = self.w_c *1.0/self.w # the width of retargeted image
@@ -160,6 +161,7 @@ class patch():
 
         self.x = 0
         self.y = 0
+        self.iter = 0
 
         if self.show == 0:
             self.start()
@@ -221,7 +223,19 @@ class patch():
             w_r = x_ + self.ker_n + 70
             pos1 = [h_l, h_r, w_l, w_r]
         if self.name[1] != 'cr':
-            pos2 = [y_l, y_r, x_l, x_r]
+            if self.iter == 0:
+                pos2 = [y_l, y_r, x_l, x_r]
+            else:
+                x_l = int(x_-self.scal_w)
+                if x_l < 0:
+                    x_l = 0
+                x_r = int(x_+self.ker_n+self.scal_w)
+
+                y_l = int(y_-self.scal_h)
+                if y_l < 0:
+                    y_l = 0
+                y_r = int(y_+self.ker_n+self.scal_h)
+                pos2 = [y_l, y_r, x_l, x_r]
         else:
             h_l = y_- self.deltaH - 70
             if h_l < 0:
@@ -234,27 +248,159 @@ class patch():
             pos2 = [h_l, h_r, w_l, w_r]
         return pos1, pos2
 
-    def getNext(self):
-        if self.y >= self.h_n:
-            return 0
-        y_ = self.h_basis + self.stride*self.y
-        x_ = self.w_basis + self.stride*self.x
+    def match(self, pos1, pos2):
+        if self.iter == 0:
+            self.img2 = self.src2[pos1[0]:pos1[1], pos1[2]:pos1[3]]
+            if self.show:
+                cv2.namedWindow("Crop1")
+                cv2.moveWindow("Crop1", 10, 180)
+                cv2.imshow('Crop1', self.img2)
+            self.generate(1)
 
-        self.img1 = self.src1[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
-        sal = self.sal1[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+            self.img2 = self.src3[pos2[0]:pos2[1], pos2[2]:pos2[3]]
+            if self.show:
+                cv2.namedWindow("Crop2")
+                cv2.moveWindow("Crop2", 10, 400)
+                cv2.imshow('Crop2', self.img2)
+            self.generate(2)
+        elif self.iter == 1:
+            self.img2 = self.src1[pos1[0]:pos1[1], pos1[2]:pos1[3]]
+            if self.show:
+                cv2.namedWindow("Crop1")
+                cv2.moveWindow("Crop1", 10, 180)
+                cv2.imshow('Crop1', self.img2)
+            self.generate(1)
 
-        pos1, pos2 = self.getXY(y_, x_)
-        # print x_l, x_r, '-', y_l, y_r, ':', y_r-y_l
+            self.img2 = self.src3[pos2[0]:pos2[1], pos2[2]:pos2[3]]
+            if self.show:
+                cv2.namedWindow("Crop2")
+                cv2.moveWindow("Crop2", 10, 400)
+                cv2.imshow('Crop2', self.img2)
+            self.generate(2)
+        else:
+            self.img2 = self.src1[pos1[0]:pos1[1], pos1[2]:pos1[3]]
+            if self.show:
+                cv2.namedWindow("Crop1")
+                cv2.moveWindow("Crop1", 10, 180)
+                cv2.imshow('Crop1', self.img2)
+            self.generate(1)
 
+            self.img2 = self.src2[pos2[0]:pos2[1], pos2[2]:pos2[3]]
+            if self.show:
+                cv2.namedWindow("Crop2")
+                cv2.moveWindow("Crop2", 10, 400)
+                cv2.imshow('Crop2', self.img2)
+            self.generate(2)
+
+    def getTriplet(self, x_, y_, pos1, pos2):
+        if self.iter == 0:
+            cv2.rectangle(self.draw1,(x_,y_),(x_+self.ker_n,y_+self.ker_n),self.color[0],2)
+        elif self.iter == 1:
+            cv2.rectangle(self.draw2,(x_,y_),(x_+self.ker_n,y_+self.ker_n),self.color[1],2)
+        else:
+            cv2.rectangle(self.draw3,(x_,y_),(x_+self.ker_n,y_+self.ker_n),self.color[2],2)
+
+        y = pos1[0] + self.double[0][0]
+        x = pos1[2] + self.double[0][1]
+        if self.iter == 0:
+            self.sal2[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
+            cv2.rectangle(self.draw2,(x,y),(x+self.ker_n,y+self.ker_n),self.color[0],2)
+        else:
+            self.sal1[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
+            if self.iter == 1:
+                cv2.rectangle(self.draw1,(x,y),(x+self.ker_n,y+self.ker_n),self.color[1],2)
+            else:
+                cv2.rectangle(self.draw1,(x,y),(x+self.ker_n,y+self.ker_n),self.color[2],2)
+
+        y = pos2[0] + self.double[1][0]
+        x = pos2[2] + self.double[1][1]
+        if self.iter == 2:
+            self.sal2[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
+            cv2.rectangle(self.draw2,(x,y),(x+self.ker_n,y+self.ker_n),self.color[2],2)
+        else:
+            self.sal3[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
+            if self.iter == 1:
+                cv2.rectangle(self.draw3,(x,y),(x+self.ker_n,y+self.ker_n),self.color[1],2)
+            else:
+                cv2.rectangle(self.draw3,(x,y),(x+self.ker_n,y+self.ker_n),self.color[0],2)
+
+        tmp = [cv2.resize(self.draw1,
+                          (int(self.draw1.shape[1] * self.srcRatio),
+                           int(self.draw1.shape[0] * self.srcRatio)),
+                          interpolation=cv2.INTER_CUBIC)]
+        tmp.append(cv2.resize(self.draw2,
+                          (int(self.draw2.shape[1] * self.srcRatio),
+                           int(self.draw2.shape[0] * self.srcRatio)),
+                          interpolation=cv2.INTER_CUBIC))
+        tmp.append(cv2.resize(self.draw3,
+                          (int(self.draw3.shape[1] * self.srcRatio),
+                           int(self.draw3.shape[0] * self.srcRatio)),
+                          interpolation=cv2.INTER_CUBIC))
+        tmp.append(cv2.resize(self.sal1*255,
+                          (int(self.sal1.shape[1]*self.salRatio),
+                           int(self.sal1.shape[0] * self.salRatio)),
+                          interpolation=cv2.INTER_CUBIC))
+        tmp.append(cv2.resize(self.sal2*255,
+                          (int(self.sal2.shape[1]*self.salRatio),
+                           int(self.sal2.shape[0] * self.salRatio)),
+                          interpolation=cv2.INTER_CUBIC)*255)
+        tmp.append(cv2.resize(self.sal3*255,
+                          (int(self.sal3.shape[1]*self.salRatio),
+                           int(self.sal3.shape[0] * self.salRatio)),
+                          interpolation=cv2.INTER_CUBIC)*255)
+
+        if self.show == 0:
+            draw_in_one(tmp, self.name)
+            cv2.waitKey(30)
+            # cv2.destroyAllWindows()
+
+    def update(self):
         if self.x + 1 < self.w_n:
             self.x += 1
         else:
             self.y += 1
             self.x = 0
+        if self.y >= self.h_n:
+            print '*********', self.iter, '**********'
+            self.x = 0
+            self.y = 0
+            self.iter += 1
+            if self.iter == 1:
+                self.sal_basis = self.sal2_basis
+            else:
+                self.sal_basis = self.sal3_basis
+            self.h_r = self.h * 1.0 / self.h_c  # the height of retargeted image
+            self.w_r = self.w * 1.0 / self.w_c  # the width of retargeted image
+            self.h_n = self.h_c / self.stride - 1
+            self.w_n = self.w_c / self.stride - 1
+            self.h_basis = (self.h_c%self.stride)/2
+            self.w_basis = (self.w_c%self.stride)/2
 
-        if np.average(np.average(sal, axis=1)) < self.sal1_basis:
+    def getNext(self):
+        if self.iter > 2:
+            return 0
+        y_ = self.h_basis + self.stride*self.y
+        x_ = self.w_basis + self.stride*self.x
+
+        if self.iter == 0:
+            self.img1 = self.src1[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+            sal = self.sal1[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+        elif self.iter == 1:
+            self.img1 = self.src2[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+            sal = self.sal2[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+        else:
+            self.img1 = self.src3[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+            sal = self.sal3[y_:(y_+self.ker_n), x_:(x_+self.ker_n)]
+
+        self.update()
+        if np.average(np.average(sal, axis=1)) < self.sal_basis:
             return 1
-        self.triplet = [self.img1]
+
+        pos1, pos2 = self.getXY(y_, x_)
+        # print x_l, x_r, '-', y_l, y_r, ':', y_r-y_l
+
+        if self.show:
+            self.triplet = [self.img1]
         self.double = []
 
         if self.show:
@@ -262,19 +408,7 @@ class patch():
             cv2.moveWindow("Crop", 10, 0)
             cv2.imshow('Crop', self.img1)
 
-        self.img2 = self.src2[pos1[0]:pos1[1], pos1[2]:pos1[3]]
-        if self.show:
-            cv2.namedWindow("Crop1")
-            cv2.moveWindow("Crop1", 10, 180)
-            cv2.imshow('Crop1', self.img2)
-        self.generate(1)
-
-        self.img2 = self.src3[pos2[0]:pos2[1], pos2[2]:pos2[3]]
-        if self.show:
-            cv2.namedWindow("Crop2")
-            cv2.moveWindow("Crop2", 10, 400)
-            cv2.imshow('Crop2', self.img2)
-        self.generate(2)
+        self.match(pos1, pos2)
 
         if self.show:
             show_in_one(self.triplet)
@@ -283,51 +417,7 @@ class patch():
         if len(self.double) == 2:
             self.counter += 1
             # print self.counter
-            cv2.rectangle(self.draw1,(x_,y_),(x_+self.ker_n,y_+self.ker_n),self.color[0],2)
-
-            tmp = [cv2.resize(self.draw1,
-                              (int(self.draw1.shape[1] * self.srcRatio),
-                               int(self.draw1.shape[0] * self.srcRatio)),
-                              interpolation=cv2.INTER_CUBIC)]
-
-            y = pos1[0] + self.double[0][0]
-            x = pos1[2] + self.double[0][1]
-            self.sal2[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
-            cv2.rectangle(self.draw2,(x,y),(x+self.ker_n,y+self.ker_n),self.color[1],2)
-
-            tmp.append(cv2.resize(self.draw2,
-                              (int(self.draw2.shape[1] * self.srcRatio),
-                               int(self.draw2.shape[0] * self.srcRatio)),
-                              interpolation=cv2.INTER_CUBIC))
-
-            y = pos2[0] + self.double[1][0]
-            x = pos2[2] + self.double[1][1]
-            self.sal3[y:(y+self.ker_n), x:(x+self.ker_n)] = 0
-            cv2.rectangle(self.draw3,(x,y),(x+self.ker_n,y+self.ker_n),self.color[2],2)
-
-            tmp.append(cv2.resize(self.draw3,
-                              (int(self.draw3.shape[1] * self.srcRatio),
-                               int(self.draw3.shape[0] * self.srcRatio)),
-                              interpolation=cv2.INTER_CUBIC))
-
-            tmp.append(cv2.resize(self.sal1*255,
-                              (int(self.sal1.shape[1]*self.salRatio),
-                               int(self.sal1.shape[0] * self.salRatio)),
-                              interpolation=cv2.INTER_CUBIC))
-
-            tmp.append(cv2.resize(self.sal2*255,
-                              (int(self.sal2.shape[1]*self.salRatio),
-                               int(self.sal2.shape[0] * self.salRatio)),
-                              interpolation=cv2.INTER_CUBIC)*255)
-            tmp.append(cv2.resize(self.sal3*255,
-                              (int(self.sal3.shape[1]*self.salRatio),
-                               int(self.sal3.shape[0] * self.salRatio)),
-                              interpolation=cv2.INTER_CUBIC)*255)
-
-            if self.show == 0:
-                draw_in_one(tmp, self.name)
-                cv2.waitKey(30)
-                # cv2.destroyAllWindows()
+            self.getTriplet(x_, y_, pos1, pos2)
 
         # if self.show:
         #     saliency = 'Saliency'
@@ -338,6 +428,7 @@ class patch():
         if self.show:
             cv2.waitKey(0)
             cv2.destroyAllWindows()
+
         return 1
 
     def detectKeypoint(self):
@@ -411,7 +502,8 @@ class patch():
             y = 0
         # print x, y
         self.double.append((x, y))
-        self.triplet.append(self.img2[x:(x+self.ker_n), y:(y+self.ker_n)])
+        if self.show:
+            self.triplet.append(self.img2[x:(x+self.ker_n), y:(y+self.ker_n)])
 
         if self.show:
             ransacName = 'Ransac{}'.format(index)

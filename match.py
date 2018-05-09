@@ -4,7 +4,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-
 def readImg(filename, h1, h2, w1, w2):
     """"
     Color image loaded by OpenCV is in BGR mode, but Matplotlib displays in RGB mode.
