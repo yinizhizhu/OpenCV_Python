@@ -181,6 +181,12 @@ class patch():
         self.h_n = 3
         self.w_n = 3
 
+        self.tolerance_h = max(20, (self.h - self.src2.shape[0])/3)
+        self.tolerance_w = max(20, (self.w - self.src2.shape[1])/3)
+        # self.tolerance_h = 10
+        # self.tolerance_w = 10
+        print self.tolerance_h, self.tolerance_w
+
         self.ker_h = self.h/2
         self.ker_w = self.w/2
         self.stride_h = self.ker_h / 2
@@ -211,7 +217,6 @@ class patch():
 
     def checker_one(self, matchA, matchB):
         # print 'In checker_one'
-        tolerance = 10
         x1, y1 = self.kpts1[matchA.queryIdx].pt
         m1, n1 = self.kpts2[matchA.trainIdx].pt
         dx = int(x1 - m1)
@@ -221,7 +226,7 @@ class patch():
         m2, n2 = self.kpts2[matchB.trainIdx].pt
         dxi = int(x2 - m2)
         dyi = int(y2 - n2)
-        if abs(dx - dxi) < tolerance and abs(dy - dyi) < tolerance:
+        if abs(dx - dxi) < self.tolerance_w and abs(dy - dyi) < self.tolerance_h:
             # print 'True, out checker_one'
             return True
         # print 'False, out checker_one'
@@ -274,6 +279,7 @@ class patch():
             for j in xrange(len(self.matches)):
                 matchB = self.matches[j]
                 if self.checker_one(matchA, matchB) and self.checker(matchA, matchB):
+                # if self.checker(matchA, matchB):
                     temp_consensus_set.append(j)
                     # print 'Found B!'
                     break
@@ -397,8 +403,8 @@ class patch():
     def getNext(self):
         if self.iter:
             src = [self.draw1, self.draw2, self.draw3]
-            draw_in_one(src, self.global_patch, self.sup, self.h_w_ratio, self.name,
-                        self.overDir + self.filename+'_over.png', self.step)
+            # draw_in_one(src, self.global_patch, self.sup, self.h_w_ratio, self.name,
+            #             self.overDir + self.filename+'_over.png', self.step)
             print '    The total number of triplet: {}'.format(self.counter)
             return 0
         y_ = self.h_basis + self.stride_h * self.y
@@ -428,6 +434,12 @@ class patch():
 
         if len(self.double) == 2:
             self.getTriplet()
+            if self.ref.shape[0] < 64 or self.ref.shape[1] < 64:
+                return 1
+            if self.ret1.shape[0] < 64 or self.ret1.shape[1] < 64:
+                return 1
+            if self.ret2.shape[0] < 64 or self.ret2.shape[1] < 64:
+                return 1
             tmp = []
             for i in xrange(3):
                 tmp.append(self.position[i])
@@ -445,9 +457,6 @@ class patch():
                 self.saveImg(name + '{}_{}.bmp'.format(self.counter, 1), self.ret1)
                 self.saveImg(name + '{}_{}.bmp'.format(self.counter, 2), self.ret2)
             self.counter += 1
-
-            if self.counter == 10:
-                self.show = 1
 
             if self.show:
                 show_in_one(self.triplet, self.h_w_ratio[2*(self.counter-1)],
@@ -473,6 +482,7 @@ class generator(data.Dataset):
         self.loadFile()
 
         self.tag = 3
+        self.container = []
         self.triplet = patch(show, output, tag)
 
         self.txtName = 'GT/list.txt'
@@ -530,6 +540,8 @@ class generator(data.Dataset):
                 return
             elif self.tag == 0:
                 self.tag = 3
+                if self.triplet.counter < 9:
+                    self.container.append([self.triplet.counter, self.filenames[index][3]])
                 out = open(self.txtName, 'a')
                 print self.filenames[index][3]
                 print >> out, self.filenames[index][3], self.triplet.counter
@@ -539,25 +551,30 @@ class generator(data.Dataset):
     def __len__(self):
         return len(self.filenames)
 
+    def statistic(self):
+        out = open('less9.txt', 'w')
+        print >> out, len(self.container)
+        for i in self.container:
+            print >> out, i
+        out.close()
 
-index = 1
+
+index = 0
+data = generator(show = 1, output=0, tag=1)
 
 if index == 0:
-    data = generator(show = 1, output=0, tag=1)
     start = time.time()
     for i in xrange(0, 1):
         print '     {}'.format(i)
         s = time.time()
-        index = 49
+        index = 832
         data[index]
         while data.tag == 2:
             data[index]
         print '    Step consuming: {}'.format(time.time()-s)
     print '    Time consuming: {}'.format(time.time()-start)
 elif index == 1:
-    data = generator(show = 0, output=0, tag=1)
     start = time.time()
-
     con = []
     for i in xrange(37):
         con.append(i)
@@ -579,7 +596,6 @@ elif index == 1:
         print '    Step consuming: {}'.format(time.time()-s)
     print '    Time consuming: {}'.format(time.time()-start)
 else:
-    data = generator(show = 1, output=1, tag=1)
     start = time.time()
     for i in xrange(37*28):
         s = time.time()
@@ -589,3 +605,4 @@ else:
         print '    Step consuming: {}'.format(time.time()-s)
     data[0]
     print '    Time consuming: {}'.format(time.time()-start)
+data.statistic()
