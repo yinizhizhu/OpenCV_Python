@@ -25,10 +25,10 @@ def showPatch(n):
     cv2.destroyAllWindows()
 
 
-def draw_in_one(src, global_patch, sup, h_w_ratio,method, name, index):
+def draw_in_one(src, global_patch, sup, h_w_ratio,method, name, index, output, show):
     font = cv2.FONT_HERSHEY_SIMPLEX
     n = 0
-    num = 9
+    num = len(global_patch)
     for i in xrange(num):
         if len(global_patch[i]):
             n += 1
@@ -85,21 +85,30 @@ def draw_in_one(src, global_patch, sup, h_w_ratio,method, name, index):
                                 cv2.LINE_AA)
                 for j in xrange(3):
                     if j:
-                        cv2.putText(merge_img, h_w_ratio[2*i+j-1][0], (w_start, h_start - 3), font, 0.8, (255, 255, 255), 1,
+                        cv2.putText(merge_img, h_w_ratio[2*i+j-1][0]+'*'+h_w_ratio[2*i+j-1][1]
+                                    +',{}*{}'.format(global_patch[k][j].shape[0], global_patch[k][j].shape[1]),
+                                    (w_start-3, h_start - 3), font, 0.8, (255, 255, 255), 1,
                                     cv2.LINE_AA)
-                        cv2.putText(merge_img, h_w_ratio[2*i+j-1][1], (w_start + 108, h_start - 3), font, 0.8, (255, 255, 255), 1,
+                        # cv2.putText(merge_img, h_w_ratio[2*i+j-1][1], (w_start + 108, h_start - 3), font, 0.8, (255, 255, 255), 1,
+                        #             cv2.LINE_AA)
+                    else:
+                        cv2.putText(merge_img,'{}*{}'.format(global_patch[k][j].shape[0], global_patch[k][j].shape[1]),
+                                    (w_start-3, h_start - 3), font, 0.8, (255, 255, 255), 1,
                                     cv2.LINE_AA)
                     merge_img[h_start:(h_start+global_patch[k][j].shape[0]),
                     w_start:(w_start+global_patch[k][j].shape[1])] = global_patch[k][j]
                     w_start += blank_size+global_patch[k][j].shape[1]
                 h_start += gap+ker_h[i]
                 i+=1
-    cv2.imwrite(name, merge_img)
-    # window_name = 'Overall'
-    # cv2.namedWindow(window_name)
-    # cv2.imshow(window_name, merge_img)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    if output:
+        cv2.imwrite(name, merge_img)
+    if show:
+        window_name = 'Overall.png'
+        cv2.imwrite(window_name, merge_img)
+        cv2.namedWindow(window_name)
+        cv2.imshow(window_name, merge_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 
 def show_in_one(images, h_w1, h_w2):
@@ -451,8 +460,15 @@ class clear_outside():
             img3 = cv2.drawMatches(self.img1, self.kpts1,
                                    self.img2, self.kpts2,
                                    self.matches, None, flags=2)
+            matchName = "Match{}_{}".format(index, self.directions[direction])
+            cv2.namedWindow(matchName)
+            cv2.moveWindow(matchName, index*150, 50)
+            cv2.imshow(matchName, img3)
 
         if len(self.matches) < 20:
+            if self.show:
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
             return 0
 
         consensus_set = []
@@ -480,6 +496,17 @@ class clear_outside():
 
         n = len(consensus_matches)
         if n < 20:
+            if self.show:
+                matched_image = np.array([])
+                matched_image = cv2.drawMatches(self.img1, self.kpts1,
+                                                self.img2, self.kpts2, consensus_matches,
+                                                flags=2, outImg=matched_image)
+                ransacName = 'Ransac{}_{}'.format(index, self.directions[direction])
+                cv2.namedWindow(ransacName)
+                cv2.moveWindow(ransacName, index*150, 300)
+                cv2.imshow(ransacName, matched_image)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
             return 0
 
         h_r = []
@@ -526,10 +553,6 @@ class clear_outside():
         self.position[step][index][direction] = [y, scale_h, x, scale_w]
 
         if self.show:
-            matchName = "Match{}_{}".format(index, self.directions[direction])
-            cv2.namedWindow(matchName)
-            cv2.moveWindow(matchName, index*150, 50)
-            cv2.imshow(matchName, img3)
             # self.triplet.append(self.img2[y:scale_h, x:scale_w])
             matched_image = np.array([])
             matched_image = cv2.drawMatches(self.img1, self.kpts1,
@@ -676,6 +699,7 @@ class patch():
         self.y = 0
         self.counter = 0
         self.h_w_ratio = []
+        self.global_ratio = []
         self.global_patch = []
         self.hor = [[] for i in xrange(3)]
         self.ver = [[] for i in xrange(4)]
@@ -746,6 +770,7 @@ class patch():
             cv2.imshow(matchName, img3)
 
         if len(self.matches) < 3:
+            self.global_ratio.append([])
             return 0
 
         consensus_set = []
@@ -773,6 +798,7 @@ class patch():
 
         n = len(consensus_matches)
         if n < 3:
+            self.global_ratio.append([])
             return 0
 
         h_r = []
@@ -794,6 +820,7 @@ class patch():
                     h_r.append(abs(pi1[1]-pj1[1])/abs(pi0[1]-pj0[1]))
         h_r = np.median(h_r)
         w_r = np.median(w_r)
+        self.global_ratio.append(np.array([h_r, w_r]))
         self.h_w_ratio.append([format(h_r, '.3f'), format(w_r, '.3f')])
         print self.counter, '- Ratio: ', h_r, w_r
 
@@ -897,22 +924,48 @@ class patch():
 
     def getNext(self):
         if self.iter:
+            output = 1
             src = [self.draw1, self.draw2, self.draw3]
             draw_in_one(src, self.global_patch, self.sup, self.h_w_ratio, self.name,
-                        self.overDir + self.filename+'_over.png', self.step)
+                        self.overDir + self.filename+'_over.png', self.step,
+                        output=output, show=0)
 
             cleaner = clear_inside(self.global_patch, self.hor, self.ver,
                             (self.tolerance_w, self.tolerance_h), 0)
             container = cleaner.getContainer()
             draw_in_one(src, container, self.sup, self.h_w_ratio, self.name,
-                        self.overDir + self.filename+'_over_clear1.png', self.step)
-
+                        self.overDir + self.filename+'_over_clear1.png', self.step,
+                        output=output, show=0)
 
             cleaner = clear_outside(container, self.hor, self.ver,
                             (self.tolerance_w, self.tolerance_h), 0)
             container = cleaner.getContainer()
             draw_in_one(src, container, self.sup, self.h_w_ratio, self.name,
-                        self.overDir + self.filename+'_over_clear2.png', self.step)
+                        self.overDir + self.filename+'_over_clear2.png', self.step,
+                        output=output, show=0)
+
+            self.counter = 0
+            self.global_patch = []
+            for i in xrange(len(container)):
+                tmp = []
+                for j in xrange(len(container[i])):
+                    if container[i][j].shape[0] >= 64 and container[i][j].shape[1]>=64:
+                        tmp.append(container[i][j])
+                if len(tmp) > 2:
+                    diff = np.sum(abs(self.global_ratio[2*i] - self.global_ratio[2*i+1]))
+                    print '     Ratio dif:', diff
+                    if diff >= 0.05:
+                        self.global_patch.append(tmp)
+                        self.counter += 1
+                    else:
+                        self.global_patch.append([tmp[0], tmp[0][0:1,0:1],tmp[0][0:1,0:1]])
+                elif len(tmp) > 0:
+                    self.global_patch.append([tmp[0], tmp[0][0:1,0:1],tmp[0][0:1,0:1]])
+                else:
+                    self.global_patch.append([])
+            draw_in_one(src, self.global_patch, self.sup, self.h_w_ratio, self.name,
+                        self.overDir + self.filename+'_over_clear3.png', self.step,
+                        output=output, show=0)
             print '    The total number of triplet: {}'.format(self.counter)
             return 0
         y_ = self.h_basis + self.stride_h * self.y
@@ -1084,7 +1137,7 @@ if index == 0:
     for i in xrange(0, 1):
         print '     {}'.format(i)
         s = time.time()
-        index = 545
+        index = 392
         data[index]
         while data.tag == 2:
             data[index]
